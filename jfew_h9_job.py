@@ -199,14 +199,37 @@ def job():
     return result
 
 
+LAST_STEP = {"text": "-"}
+
+
+def gh_annotation(kind, msg):
+    """Tampil di kotak Annotations GitHub (tidak perlu membuka log)."""
+    msg = str(msg).replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print("::%s title=J-FEW Himawari-9::%s" % (kind, msg))
+
+
 if __name__ == "__main__":
+    _orig_print = print
+
+    def print(*a, **k):  # noqa: A001  (catat langkah terakhir)
+        text = " ".join(str(x) for x in a)
+        if text.startswith("LANGKAH"):
+            LAST_STEP["text"] = text
+        _orig_print(*a, **k)
+
     try:
         res = job()
     except Exception as e:  # noqa
         print("GAGAL: %s: %s" % (type(e).__name__, e))
         traceback.print_exc(file=sys.stdout)
+        gh_annotation("error", "Berhenti di " + LAST_STEP["text"] +
+                      " | " + type(e).__name__ + ": " + str(e))
         sys.exit(1)
+    gh_annotation("notice", "uploaded=%s | file WLF di FTP=%s | gagal=%s | file terbaru=%s (%s menit lalu)" % (
+        res.get("uploaded"), res.get("files_on_ftp_window"), len(res.get("failed") or []),
+        res.get("latest_file"), res.get("latest_age_minutes")))
     if res.get("warning"):
         print("PERINGATAN: " + res["warning"])
+        gh_annotation("warning", res["warning"])
     # Exit code 1 -> GitHub menandai run gagal dan mengirim email notifikasi
     sys.exit(0 if res.get("ok") else 1)
