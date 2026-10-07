@@ -111,8 +111,9 @@ def connect(c):
 def list_dir(ftp, path):
     try:
         return [n.rsplit("/", 1)[-1] for n in ftp.nlst(path)]
-    except ftplib.error_perm as e:
-        if "550" in str(e):
+    except (ftplib.error_perm, ftplib.error_temp) as e:
+        # 550 / 450 = folder jam ini belum ada di server JAXA (belum diterbitkan)
+        if "550" in str(e) or "450" in str(e) or "No such file" in str(e):
             return []
         raise
     except EOFError:
