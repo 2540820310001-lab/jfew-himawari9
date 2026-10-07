@@ -1,0 +1,29 @@
+name: J-FEW Himawari-9 Downloader
+
+on:
+  schedule:
+    # Setiap 10 menit, digeser 3 menit dari pergantian jam
+    # (jadwal tepat di menit 00 lebih sering tertunda di GitHub).
+    - cron: "3-59/10 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: jfew-h9
+  cancel-in-progress: false
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unduh Himawari-9 WLF dan kirim ke Drive J-FEW
+        run: python3 jfew_h9_job.py
+        env:
+          PTREE_USER: ${{ secrets.PTREE_USER }}
+          PTREE_PASSWORD: ${{ secrets.PTREE_PASSWORD }}
+          RECEIVER_URL: ${{ secrets.RECEIVER_URL }}
+          RECEIVER_TOKEN: ${{ secrets.RECEIVER_TOKEN }}
+          REMOTE_TEMPLATE: ${{ vars.REMOTE_TEMPLATE }}
+          LOOKBACK_HOURS: "6"
