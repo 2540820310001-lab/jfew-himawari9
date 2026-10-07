@@ -25,6 +25,12 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import sys
+import traceback
+
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:  # noqa
+    pass
 
 FILE_PATTERN = re.compile(r"^H09_(\d{8})_(\d{4})_.*L2WLF.*\.csv$", re.IGNORECASE)
 
@@ -78,8 +84,9 @@ def receiver(c, payload):
             last = e
             if "menolak" in str(e) or "JSON" in str(e):
                 raise
+            print("  Receiver percobaan %d/3 gagal: %s: %s" % (attempt, type(e).__name__, e))
             time.sleep(3 * attempt)
-    raise RuntimeError("Receiver tidak dapat dihubungi: %s" % last)
+    raise RuntimeError("Receiver tidak dapat dihubungi: %s: %s" % (type(last).__name__, last))
 
 
 # ----------------------------------------------------------------------
@@ -96,8 +103,9 @@ def connect(c):
             return ftp
         except Exception as e:  # noqa
             last = e
+            print("  Login FTP percobaan %d/3 gagal: %s: %s" % (attempt, type(e).__name__, e))
             time.sleep(4 * attempt)
-    raise RuntimeError("Login FTP JAXA gagal: %s" % last)
+    raise RuntimeError("Login FTP JAXA gagal: %s: %s" % (type(last).__name__, last))
 
 
 def list_dir(ftp, path):
@@ -107,6 +115,8 @@ def list_dir(ftp, path):
         if "550" in str(e):
             return []
         raise
+    except EOFError:
+        raise RuntimeError("Koneksi FTP terputus saat membuka folder " + path)
 
 
 def remote_dirs(c, now_utc):
@@ -124,17 +134,24 @@ def remote_dirs(c, now_utc):
 # ----------------------------------------------------------------------
 def job():
     started = time.time()
+    print("LANGKAH 1/3: cek konfigurasi...")
     c = cfg()
+    print("  OK. FTP host=%s | user=%s | template=%s" % (c["host"], c["user"], c["template"]))
     now_utc = datetime.now(timezone.utc)
 
+    print("LANGKAH 2/3: hubungi Receiver (Apps Script)...")
     existing = set(receiver(c, {"action": "list"}).get("files", []))
     print("Receiver: %d file sudah ada di Drive." % len(existing))
 
+    print("LANGKAH 3/3: login FTP JAXA dan cek folder WLF...")
     ftp = connect(c)
+    print("  Login FTP OK.")
     uploaded, failed, seen = [], [], 0
     try:
         for d in remote_dirs(c, now_utc):
-            for name in sorted(n for n in list_dir(ftp, d) if FILE_PATTERN.match(n)):
+            names_in_dir = [n for n in list_dir(ftp, d) if FILE_PATTERN.match(n)]
+            print("  %s -> %d file WLF" % (d, len(names_in_dir)))
+            for name in sorted(names_in_dir):
                 seen += 1
                 if name in existing:
                     continue
@@ -186,7 +203,8 @@ if __name__ == "__main__":
     try:
         res = job()
     except Exception as e:  # noqa
-        print("ERROR: %s" % e)
+        print("GAGAL: %s: %s" % (type(e).__name__, e))
+        traceback.print_exc(file=sys.stdout)
         sys.exit(1)
     if res.get("warning"):
         print("PERINGATAN: " + res["warning"])
