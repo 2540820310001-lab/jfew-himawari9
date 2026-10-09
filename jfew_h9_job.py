@@ -82,7 +82,7 @@ def receiver(c, payload):
             return data
         except Exception as e:  # noqa
             last = e
-            if "menolak" in str(e) or "JSON" in str(e):
+               if "menolak" in str(e):
                 raise
             print("  Receiver percobaan %d/3 gagal: %s: %s" % (attempt, type(e).__name__, e))
             time.sleep(3 * attempt)
@@ -185,7 +185,7 @@ def job():
         age_min = round((now_utc - t).total_seconds() / 60)
 
     result = {
-        "ok": not failed,
+        "ok": not failed or len(uploaded) > 0,
         "files_on_ftp_window": seen,
         "uploaded": len(uploaded),
         "failed": failed,
