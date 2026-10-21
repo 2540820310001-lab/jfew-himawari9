@@ -82,7 +82,7 @@ def receiver(c, payload):
             return data
         except Exception as e:  # noqa
             last = e
-               if "menolak" in str(e):
+            if "menolak" in str(e):
                 raise
             print("  Receiver percobaan %d/3 gagal: %s: %s" % (attempt, type(e).__name__, e))
             time.sleep(3 * attempt)
