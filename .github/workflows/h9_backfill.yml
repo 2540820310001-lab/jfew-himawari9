@@ -1,0 +1,123 @@
+name: J-FEW Himawari-9 Backfill (cross-check)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Tanggal mulai (UTC, YYYY-MM-DD)"
+        default: "2026-07-01"
+        required: true
+      end:
+        description: "Tanggal akhir (UTC, YYYY-MM-DD) — kosongkan = hari ini"
+        default: ""
+        required: false
+      radius_km:
+        description: "Radius dari boundary zona (km)"
+        default: "10"
+        required: true
+      chunk_days:
+        description: "Hari per job paralel"
+        default: "10"
+        required: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.mk.outputs.chunks }}
+    steps:
+      - id: mk
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, datetime as dt
+          s = dt.date.fromisoformat("${{ github.event.inputs.start }}")
+          e_in = "${{ github.event.inputs.end }}".strip()
+          e = dt.date.fromisoformat(e_in) if e_in else dt.datetime.utcnow().date()
+          n = int("${{ github.event.inputs.chunk_days }}")
+          out = []
+          while s <= e:
+              t = min(s + dt.timedelta(days=n - 1), e)
+              out.append({"start": s.isoformat(), "end": t.isoformat()})
+              s = t + dt.timedelta(days=1)
+          print("chunks=" + json.dumps(out))
+          PY
+
+  scan:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        chunk: ${{ fromJson(needs.plan.outputs.chunks) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Scan Himawari-9 WLF ${{ matrix.chunk.start }} .. ${{ matrix.chunk.end }}
+        env:
+          PTREE_USER: ${{ secrets.PTREE_USER }}
+          PTREE_PASSWORD: ${{ secrets.PTREE_PASSWORD }}
+          REMOTE_TEMPLATE: ${{ vars.REMOTE_TEMPLATE }}
+          START: ${{ matrix.chunk.start }}
+          END: ${{ matrix.chunk.end }}
+          RADIUS_KM: ${{ github.event.inputs.radius_km }}
+          THREADS: "3"
+          OUT_DIR: out
+        run: python3 jfew_h9_backfill.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: part_${{ matrix.chunk.start }}
+          path: out/
+
+  merge:
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: parts
+          pattern: part_*
+          merge-multiple: true
+      - name: Gabung hasil
+        run: |
+          python3 - <<'PY'
+          import csv, glob, json, os
+          os.makedirs("final", exist_ok=True)
+          def merge(pat, out, key):
+              rows, hdr = [], None
+              for f in sorted(glob.glob("parts/" + pat)):
+                  with open(f, encoding="utf-8") as fh:
+                      r = list(csv.reader(fh))
+                      if r: hdr = r[0]; rows += r[1:]
+              rows.sort(key=lambda x: x[key])
+              with open(out, "w", newline="", encoding="utf-8") as fh:
+                  w = csv.writer(fh); w.writerow(hdr or []); w.writerows(rows)
+              return hdr, rows
+          _, hits = merge("h9_hits_*.csv", "final/J-FEW_H9_backfill_hits.csv", 0)
+          sh, scan = merge("h9_scan_*.csv", "final/J-FEW_H9_backfill_scan_per_hari.csv", 0)
+          files = sum(int(r[3]) for r in scan); kalsel = sum(int(r[6]) for r in scan)
+          inside = sum(1 for r in hits if r[4] == "DALAM KONSESI")
+          nofile = [r[0] for r in scan if int(r[3]) == 0]
+          hdrs = [json.load(open(f)).get("csv_header") for f in glob.glob("parts/h9_summary_*.json")]
+          md = ["## J-FEW · Himawari-9 backfill (cross-check)",
+                "| Item | Nilai |", "|---|---|",
+                "| Hari dipindai | %d |" % len(scan),
+                "| File WLF terbaca | %d |" % files,
+                "| Hari tanpa file di FTP | %d %s |" % (len(nofile), (", ".join(nofile[:10]) + (" …" if len(nofile) > 10 else "")) if nofile else ""),
+                "| Hotspot H9 di Kalimantan Selatan | %d |" % kalsel,
+                "| Hotspot H9 dalam radius konsesi | %d |" % len(hits),
+                "| **Hotspot H9 DI DALAM konsesi** | **%d** |" % inside,
+                "", "Header CSV WLF: `%s`" % (next((h for h in hdrs if h), None),),
+                "", "Unduh artefak **J-FEW_H9_backfill** di bagian bawah halaman run ini."]
+          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(md) + "\n")
+          print("\n".join(md))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: J-FEW_H9_backfill
+          path: final/
