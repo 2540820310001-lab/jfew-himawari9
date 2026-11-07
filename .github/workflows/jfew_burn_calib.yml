@@ -1,0 +1,25 @@
+name: J-FEW Kalibrasi indeks terbakar (dNBR · NBR2 · MIRBI vs drone)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  calib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api
+      - name: Bandingkan indeks dengan boundary drone
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+        run: python3 jfew_burn_calib.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: J-FEW_calib_result
+          path: calib_result.csv
