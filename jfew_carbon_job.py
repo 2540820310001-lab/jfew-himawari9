@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 J-FEW · Estimasi EMISI KARBON kebakaran per boundary lapangan (drone) — jfew_carbon_job.py (v1 · 8 Nov 2026)
