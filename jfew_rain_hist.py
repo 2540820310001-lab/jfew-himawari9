@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-J-FEW · CURAH HUJAN SATELIT BULANAN di titik ombrometer PT JBG — jfew_rain_hist.py (v1 · 10 Nov 2026)
+J-FEW · CURAH HUJAN SATELIT BULANAN di titik ombrometer PT JBG — jfew_rain_hist.py (v1.1 · 10 Nov 2026 · status Final/sementara dari metadata IMERG)
 -----------------------------------------------------------------------------------------------------
 Titik  : ombrometer PT JBG  UTM 50S 279948.364 E / 9568309.068 N  →  115.018279 E, -3.903238 (WGS84)
 Periode: Jan 1998 – bulan terakhir yang tersedia (tiap produk punya tanggal akhir sendiri)
@@ -56,7 +56,9 @@ def month_feature(y, m):
                  # belum ada Final bulanan → jumlah half-hourly (mm/jam × 0,5 jam); harus lengkap ≥ 95 %
                  ee.Algorithms.If(imerg_hh.size().gte(calendar.monthrange(y, m)[1] * 48 * 0.95),
                                   ee.Number(sample(imerg_hh.sum(), 11132)).multiply(0.5), None)),
-        "imerg_src": ee.Algorithms.If(imerg_m.size().gt(0), "final", ee.Algorithms.If(imerg_hh.size().gt(0), "prov", "")),
+        # "final" = produk bulanan Final, atau half-hourly yang seluruhnya berstatus permanent (Final); selain itu "prov"
+        "imerg_src": ee.Algorithms.If(imerg_m.size().gt(0), "final", ee.Algorithms.If(imerg_hh.size().gt(0),
+                     ee.Algorithms.If(imerg_hh.filter(ee.Filter.neq("status", "permanent")).size().eq(0), "final", "prov"), "")),
         "gsmap": ee.Algorithms.If(gsm.size().gte(calendar.monthrange(y, m)[1] * 24 * 0.95), sample(gsm.sum(), 11132), None),
         "chirps": ee.Algorithms.If(chp.size().eq(6), sample(chp.sum(), 5566), None),
         "era5l": ee.Algorithms.If(era.size().gt(0), ee.Number(sample(era.first(), 11132)).multiply(1000), None),
