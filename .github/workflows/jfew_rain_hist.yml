@@ -1,0 +1,24 @@
+name: J-FEW Curah hujan satelit vs ombrometer (1998-sekarang)
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 2 5 * *"     # tiap tanggal 5, 10:17 WITA — tambah bulan terbaru
+
+jobs:
+  rain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api
+      - name: Ambil curah hujan satelit bulanan di titik ombrometer
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          JFEW_WEBAPP_URL: ${{ secrets.JFEW_WEBAPP_URL }}
+          JFEW_BURN_TOKEN: ${{ secrets.JFEW_BURN_TOKEN }}
+        run: python3 jfew_rain_hist.py
