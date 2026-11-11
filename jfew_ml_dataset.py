@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2.2 · + ambang kelas risiko & model disimpan ke repo · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
+J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2.4 · wilayah diperluas ke pantai selatan, sel air/laut tidak dipakai · v2.3 · tanpa Niño3.4/DMI secara default (El Niño 2026 di luar rentang data latih; set ML_USE_ENSO=1 untuk menyertakan) · v2.2 · + ambang kelas risiko & model disimpan ke repo · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
 ------------------------------------------------------------------------------------------------------------
 Pertanyaan model: "Hari ini/besok, sel 1 km mana di sekitar PT JBG yang paling mungkin muncul titik api?"
 Wilayah   : kotak 114.92–115.14 BT, 3.82–3.96 LS (konsesi + buffer + ±3–4 km sekitarnya), sel ±1 km
@@ -30,7 +30,7 @@ import ee
 
 import jfew_burn_job as J
 
-W, S, E, N = 114.92, -3.96, 115.14, -3.82
+W, S, E, N = 114.92, -4.05, 115.14, -3.82                  # v2.4: diperluas ke selatan s.d. pantai (admin, port, Z04)
 CORE = (114.9546, -3.9286, 115.1042, -3.8588)            # amplop konsesi + buffer 1 km J-FEW
 START = int(os.environ.get("ML_START") or 2001)
 END = int(os.environ.get("ML_END") or dt.date.today().year - 1)
@@ -221,7 +221,10 @@ def model_report(path):
     df["year"] = df["date"].str[:4].astype(int)
     feats = [c for c in ["tmax", "rh", "wind", "rain", "rain7", "rain30", "rain90", "dry30", "cdd", "dsr5", "nino34", "dmi", "ndvi",
                          "fire_hist", "landcover", "lc_year", "elev", "slope", "dist_built", "month", "doy"] if c in df.columns]
+    if os.environ.get("ML_USE_ENSO") != "1":               # v2.3: Niño3.4/DMI tidak dipakai model harian (lihat catatan di atas)
+        feats = [f for f in feats if f not in ("nino34", "dmi")]
     df = df.dropna(subset=feats)
+    df = df[df.landcover != 80]                             # sel air permanen (laut, void) tidak dipakai — tidak bisa terbakar
     tr, ca, te = df[df.year <= 2014], df[(df.year >= 2015) & (df.year <= 2018)], df[df.year >= 2019]
     def w(y):
         pos = y.mean(); return np.where(y == 1, 0.5 / pos, 0.5 / (1 - pos))
