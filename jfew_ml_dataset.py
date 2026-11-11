@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2.1 · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
+J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2.2 · + ambang kelas risiko & model disimpan ke repo · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
 ------------------------------------------------------------------------------------------------------------
 Pertanyaan model: "Hari ini/besok, sel 1 km mana di sekitar PT JBG yang paling mungkin muncul titik api?"
 Wilayah   : kotak 114.92–115.14 BT, 3.82–3.96 LS (konsesi + buffer + ±3–4 km sekitarnya), sel ±1 km
@@ -260,14 +260,31 @@ def model_report(path):
     else:
         final.fit(df[feats], df.label)
     prev_sample = float(df.label.mean())
-    joblib.dump({"model": final, "iso": iso, "features": feats, "best": best, "prev_sample": prev_sample,
-                 "trained": "2001-%d" % END, "note": "peluang = relatif thd sampel; koreksi prevalensi di tahap 3"}, OUT + "/jfew_ml_model.joblib")
+    # ambang kelas risiko: persentil skor out-of-fold (per tahun) pada sel-hari latar (hari tanpa api) → klimatologi skor
+    from sklearn.model_selection import GroupKFold
+    oof = np.zeros(len(df))
+    for a, b in GroupKFold(n_splits=5).split(df, groups=df.year):
+        mk = models[best].__class__(**models[best].get_params())
+        if best == "Gradient boosting":
+            mk.fit(df[feats].iloc[a], df.label.iloc[a], sample_weight=w(df.label.iloc[a]))
+        else:
+            mk.fit(df[feats].iloc[a], df.label.iloc[a])
+        oof[b] = mk.predict_proba(df[feats].iloc[b])[:, 1]
+    fire_dates = set(df.date[df.label == 1])
+    bg = oof[(~df.date.isin(fire_dates)).values]
+    thr = {"p75": float(np.percentile(bg, 75)), "p90": float(np.percentile(bg, 90)), "p97": float(np.percentile(bg, 97))}
+    print("ambang kelas:", thr)
+    import sklearn
+    joblib.dump({"model": final, "iso": iso, "features": feats, "best": best, "prev_sample": prev_sample, "thr": thr,
+                 "trained": "2001-%d" % END, "sklearn": sklearn.__version__}, OUT + "/jfew_ml_model.joblib", compress=3)
+    open(OUT + "/sklearn_version.txt", "w").write(sklearn.__version__)
     json.dump({"results": res, "per_year": per_year, "importance": imp, "best": best, "features": feats}, open(OUT + "/jfew_ml_metrics.json", "w"), default=float, indent=1)
     t = ["| Model | AUC | Average precision | Brier | % api tertangkap di 10 % sel teratas |", "|---|---|---|---|---|"]
     t += ["| %s%s | %.3f | %.3f | %.3f | %.0f%% |" % (r[0], " ✓" if r[0] == best else "", r[1], r[2], r[3], r[4] * 100) for r in res]
     t += ["", "Per tahun (model terpilih): " + " · ".join("%d: AP %.2f (%d api)" % (y, ap, n) for y, n, ap in per_year), "",
           "Fitur paling berpengaruh (permutation importance, Δ AP): " + ", ".join("%s (%.3f)" % (k, v) for k, v in imp), "",
-          "Fitur dipakai (%d): %s" % (len(feats), ", ".join(feats))]
+          "Fitur dipakai (%d): %s" % (len(feats), ", ".join(feats)), "",
+          "Ambang kelas risiko (skor RF, persentil hari tanpa api): Sedang ≥ %.3f (P75) · Tinggi ≥ %.3f (P90) · Sangat tinggi ≥ %.3f (P97)" % (thr["p75"], thr["p90"], thr["p97"])]
     return "\n".join(t)
 
 
