@@ -1,5 +1,5 @@
 """
-J-FEW · PETA RISIKO KEBAKARAN BESOK (jfew_fire_risk.py · v1 · 11 Nov 2026)
+J-FEW · PETA RISIKO KEBAKARAN BESOK (jfew_fire_risk.py · v1.1 · 11 Nov 2026 · indeks iklim pakai 3 bulan terakhir yang tersedia · diagnosa fitur kosong)
 Tiap pagi: cuaca Open-Meteo (92 hari lalu + prakiraan) + lapisan Earth Engine (NDVI, riwayat api, tutupan lahan, DEM,
 jarak permukiman) + Niño3.4/DMI → model Random Forest (ml_model/jfew_ml_model.joblib, hasil jfew_ml_dataset.py)
 → skor per sel 1 km → 4 kelas (Rendah / Sedang / Tinggi / Sangat tinggi; ambang = persentil skor hari tanpa api)
@@ -84,6 +84,16 @@ def static_layers(cells, target):
     return {(f["properties"]["lon"], f["properties"]["lat"]): f["properties"] for f in res["features"]}
 
 
+def index_latest(s, date):
+    """rata-rata 3 bulan sebelum tanggal; bila belum terbit (DMI/Niño sering terlambat) → 3 bulan terakhir yang tersedia"""
+    v = D.climate_index(s, date)
+    if v is not None or not s:
+        return v
+    y, m = int(date[:4]), int(date[5:7])
+    ks = sorted(k for k in s if k < (y, m))[-3:]
+    return sum(s[k] for k in ks) / len(ks) if ks else None
+
+
 def main():
     pk = joblib.load(MODEL)
     model, feats, thr = pk["model"], pk["features"], pk["thr"]
@@ -100,24 +110,30 @@ def main():
         print("indeks iklim gagal:", ex); nino, dmi = {}, {}
     cells = D.grid()
     near = {c: min(range(len(PTS)), key=lambda i: (PTS[i][0] - c[0]) ** 2 + (PTS[i][1] - c[1]) ** 2) for c in cells}
-    days = []
+    days, diag = [], []
     for target in targets:
         st = static_layers(cells, target)
         wf = [weather_feats(w, target) for w in wx]
         cdd, dsr = runs(regional, target)
         t = dt.date.fromisoformat(target)
-        common = {"cdd": cdd, "dsr5": dsr, "nino34": D.climate_index(nino, target), "dmi": D.climate_index(dmi, target),
+        common = {"cdd": cdd, "dsr5": dsr, "nino34": index_latest(nino, target), "dmi": index_latest(dmi, target),
                   "month": t.month, "doy": t.timetuple().tm_yday}
-        rows, keys = [], []
+        rows, keys, miss = [], [], {}
+        print("%s · sel di grid %d · sel dengan data EE %d · cuaca titik-1 %s · iklim %s" % (target, len(cells), len(st), wf[0], common))
         for c in cells:
             if c not in st:
-                continue
+                miss["(data EE kosong)"] = miss.get("(data EE kosong)", 0) + 1; continue
             r = dict(st[c]); r.update(wf[near[c]]); r.update(common)
-            if any(r.get(f) is None for f in feats):
+            bad = [f for f in feats if r.get(f) is None or (isinstance(r.get(f), float) and np.isnan(r.get(f)))]
+            if bad:
+                for f in bad:
+                    miss[f] = miss.get(f, 0) + 1
                 continue
             rows.append([r[f] for f in feats]); keys.append((c, r))
+        if miss:
+            print("  fitur kosong:", miss)
         if not rows:
-            print(target, ": tidak ada sel lengkap"); continue
+            print(target, ": tidak ada sel lengkap"); diag.append("%s: tidak ada sel lengkap · fitur kosong %s" % (target, miss)); continue
         score = model.predict_proba(pd.DataFrame(rows, columns=feats))[:, 1]
         out = []
         for (c, r), s in zip(keys, score):
@@ -135,6 +151,7 @@ def main():
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         md = ["# J-FEW · risiko kebakaran", "", "| Tanggal | Tingkat area | Rendah | Sedang | Tinggi | Sangat tinggi |", "|---|---|---|---|---|---|"]
         md += ["| %s | %s | %d | %d | %d | %d |" % (d["date"], CLS[d["level"]], *d["n"]) for d in days]
+        md += ["", "Fitur dipakai model: " + ", ".join(feats)] + ["\n⚠ " + x for x in diag]
         open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(md))
 
 
