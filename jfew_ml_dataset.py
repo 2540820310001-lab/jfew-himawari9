@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2 · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
+J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2.1 · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
 ------------------------------------------------------------------------------------------------------------
 Pertanyaan model: "Hari ini/besok, sel 1 km mana di sekitar PT JBG yang paling mungkin muncul titik api?"
 Wilayah   : kotak 114.92–115.14 BT, 3.82–3.96 LS (konsesi + buffer + ±3–4 km sekitarnya), sel ±1 km
@@ -124,13 +124,13 @@ def stack(date):
     zero = ee.ImageCollection([ee.Image.constant(0).toByte().rename("T21")])   # cegah koleksi kosong (hari tanpa citra FIRMS)
     hist = YEARLY.filter(ee.Filter.lt("year", d.get("year"))).merge(zero).sum().rename("fire_hist")   # jumlah hari ber-api tahun-tahun sebelumnya
     lab = FIRMS.filterDate(d, d.advance(1, "day")).map(lambda i: i.gt(0).unmask(0).toByte()).merge(zero).max().rename("label")
-    extra = ee.Image([])
+    img = (tmax.addBands(rh).addBands(wind).addBands(rain).addBands(prev(7).rename("rain7")).addBands(prev(30).rename("rain30"))
+           .addBands(prev(90).rename("rain90")).addBands(dry).addBands(ndvi).addBands(hist).addBands(STATIC).addBands(lab))
     if MCD is not None:
         lcy = MCD.filter(ee.Filter.calendarRange(d.get("year"), d.get("year"), "year")).first()
         lcy = ee.Image(ee.Algorithms.If(lcy, lcy, MCD.sort("system:time_start", False).first()))
-        extra = extra.addBands(lcy.rename("lc_year"))
-    return (extra.addBands(tmax).addBands(rh).addBands(wind).addBands(rain).addBands(prev(7).rename("rain7")).addBands(prev(30).rename("rain30"))
-            .addBands(prev(90).rename("rain90")).addBands(dry).addBands(ndvi).addBands(hist).addBands(STATIC).addBands(lab))
+        img = img.addBands(lcy.rename("lc_year"))
+    return img
 
 
 BANDS = ["tmax", "rh", "wind", "rain", "rain7", "rain30", "rain90", "dry30", "ndvi", "fire_hist", "landcover", "elev", "slope", "label"]
