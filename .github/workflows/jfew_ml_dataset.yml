@@ -1,0 +1,31 @@
+name: J-FEW ML tahap 1 (tabel data peluang kebakaran)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Tahun awal (default 2001)"
+        required: false
+        default: "2001"
+
+jobs:
+  dataset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api numpy pandas scikit-learn
+      - name: Bangun tabel data + uji awal
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          ML_START: ${{ github.event.inputs.start }}
+        run: python3 jfew_ml_dataset.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jfew-ml-dataset
+          path: ml_out/
