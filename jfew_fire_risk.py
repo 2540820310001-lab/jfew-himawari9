@@ -1,5 +1,5 @@
 """
-J-FEW · PETA RISIKO KEBAKARAN BESOK (jfew_fire_risk.py · v1.2 · definisi RH/angin = data latih, hujan lalu dari ERA5-Land · v1.1 · 11 Nov 2026 · indeks iklim pakai 3 bulan terakhir yang tersedia · diagnosa fitur kosong)
+J-FEW · PETA RISIKO KEBAKARAN BESOK (jfew_fire_risk.py · v1.3 · wilayah s.d. pantai selatan, sel laut dilewati · v1.2 · definisi RH/angin = data latih, hujan lalu dari ERA5-Land · v1.1 · 11 Nov 2026 · indeks iklim pakai 3 bulan terakhir yang tersedia · diagnosa fitur kosong)
 Tiap pagi: cuaca Open-Meteo (92 hari lalu + prakiraan) + lapisan Earth Engine (NDVI, riwayat api, tutupan lahan, DEM,
 jarak permukiman) + Niño3.4/DMI → model Random Forest (ml_model/jfew_ml_model.joblib, hasil jfew_ml_dataset.py)
 → skor per sel 1 km → 4 kelas (Rendah / Sedang / Tinggi / Sangat tinggi; ambang = persentil skor hari tanpa api)
@@ -21,7 +21,7 @@ import jfew_ml_dataset as D
 
 MODEL = "ml_model/jfew_ml_model.joblib"
 WITA = dt.timezone(dt.timedelta(hours=8))
-PTS = [(lo, la) for la in (-3.86, -3.92) for lo in (114.95, 115.03, 115.11)]   # titik cuaca Open-Meteo (sel → titik terdekat)
+PTS = [(lo, la) for la in (-3.86, -3.93, -4.01) for lo in (114.95, 115.03, 115.11)]   # titik cuaca Open-Meteo (sel → titik terdekat)
 CLS = ["Rendah", "Sedang", "Tinggi", "Sangat tinggi"]
 
 
@@ -144,6 +144,8 @@ def main():
         for c in cells:
             if c not in st:
                 miss["(data EE kosong)"] = miss.get("(data EE kosong)", 0) + 1; continue
+            if st[c].get("landcover") == 80:                  # laut / air permanen → tidak digambar
+                continue
             r = dict(st[c]); r.update(wf[near[c]]); r.update(common)
             bad = [f for f in feats if r.get(f) is None or (isinstance(r.get(f), float) and np.isnan(r.get(f)))]
             if bad:
