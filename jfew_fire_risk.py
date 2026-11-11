@@ -1,5 +1,5 @@
 """
-J-FEW · PETA RISIKO KEBAKARAN BESOK (jfew_fire_risk.py · v1.1 · 11 Nov 2026 · indeks iklim pakai 3 bulan terakhir yang tersedia · diagnosa fitur kosong)
+J-FEW · PETA RISIKO KEBAKARAN BESOK (jfew_fire_risk.py · v1.2 · definisi RH/angin = data latih, hujan lalu dari ERA5-Land · v1.1 · 11 Nov 2026 · indeks iklim pakai 3 bulan terakhir yang tersedia · diagnosa fitur kosong)
 Tiap pagi: cuaca Open-Meteo (92 hari lalu + prakiraan) + lapisan Earth Engine (NDVI, riwayat api, tutupan lahan, DEM,
 jarak permukiman) + Niño3.4/DMI → model Random Forest (ml_model/jfew_ml_model.joblib, hasil jfew_ml_dataset.py)
 → skor per sel 1 km → 4 kelas (Rendah / Sedang / Tinggi / Sangat tinggi; ambang = persentil skor hari tanpa api)
@@ -31,18 +31,39 @@ def get_json(url):
 
 
 def weather():
-    """per titik: DataFrame harian (tanggal WITA) rain, tmax, rh, wind — 92 hari lalu s.d. prakiraan +3 hari"""
+    """per titik: DataFrame harian (hari UTC, sama dengan ERA5 DAILY_AGGR) rain, tmax, rh, wind — 92 hari lalu s.d. +3 hari.
+    Definisi disamakan dengan data latih: RH dari rata-rata harian suhu & titik embun; angin = besar vektor rata-rata u,v.
+    Hujan masa lalu memakai ERA5-Land (Open-Meteo archive) bila sudah tersedia; hari terakhir & prakiraan dari model forecast."""
+    lat = ",".join(str(p[1]) for p in PTS); lon = ",".join(str(p[0]) for p in PTS)
     url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&daily=precipitation_sum,temperature_2m_max"
-           "&hourly=relative_humidity_2m,wind_speed_10m&wind_speed_unit=ms&timezone=Asia%%2FMakassar&past_days=92&forecast_days=4"
-           % (",".join(str(p[1]) for p in PTS), ",".join(str(p[0]) for p in PTS)))
-    data = get_json(url)
-    data = data if isinstance(data, list) else [data]
+           "&hourly=temperature_2m,dew_point_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&timezone=GMT&past_days=92&forecast_days=4"
+           % (lat, lon))
+    data = get_json(url); data = data if isinstance(data, list) else [data]
+    arch = [None] * len(data)
+    try:
+        t1 = dt.date.today(); t0 = t1 - dt.timedelta(100)
+        a = get_json("https://archive-api.open-meteo.com/v1/archive?latitude=%s&longitude=%s&start_date=%s&end_date=%s"
+                     "&daily=precipitation_sum&models=era5_land&timezone=GMT" % (lat, lon, t0, t1))
+        arch = a if isinstance(a, list) else [a]
+    except Exception as ex:                                   # noqa: BLE001
+        print("ERA5-Land archive gagal, hujan memakai forecast saja:", str(ex)[:120])
     out = []
-    for d in data:
-        day = pd.DataFrame({"date": d["daily"]["time"], "rain": d["daily"]["precipitation_sum"], "tmax": d["daily"]["temperature_2m_max"]})
-        hr = pd.DataFrame({"t": d["hourly"]["time"], "rh": d["hourly"]["relative_humidity_2m"], "wind": d["hourly"]["wind_speed_10m"]})
-        hr["date"] = hr.t.str[:10]
-        day = day.merge(hr.groupby("date")[["rh", "wind"]].mean().reset_index(), on="date", how="left").set_index("date")
+    for i, d in enumerate(data):
+        day = pd.DataFrame({"date": d["daily"]["time"], "rain": d["daily"]["precipitation_sum"], "tmax": d["daily"]["temperature_2m_max"]}).set_index("date")
+        n_era = 0
+        if arch[i]:
+            er = pd.Series(arch[i]["daily"]["precipitation_sum"], index=arch[i]["daily"]["time"], dtype=float).dropna()
+            er = er[er.index.isin(day.index)]
+            day.loc[er.index, "rain"] = er.values; n_era = len(er)
+        h = pd.DataFrame(d["hourly"]); h["date"] = h.time.str[:10]
+        rad = np.deg2rad(h.wind_direction_10m)
+        h["u"] = -h.wind_speed_10m * np.sin(rad); h["v"] = -h.wind_speed_10m * np.cos(rad)
+        g = h.groupby("date").agg(t=("temperature_2m", "mean"), td=("dew_point_2m", "mean"), u=("u", "mean"), v=("v", "mean"))
+        g["rh"] = 100 * np.exp(17.625 * g.td / (g.td + 243.04)) / np.exp(17.625 * g.t / (g.t + 243.04))
+        g["wind"] = np.hypot(g.u, g.v)
+        day = day.join(g[["rh", "wind"]], how="left")
+        if i == 0:
+            print("titik 1: %d hari hujan ERA5-Land, sisanya forecast" % n_era)
         out.append(day)
     return out
 
@@ -141,7 +162,10 @@ def main():
             out.append([c[0], c[1], k, round(float(s), 3), round(r["rain30"]), round(r["rh"]), r["dsr5"], round(r["wind"], 1), round(r["tmax"], 1)])
         n = [sum(1 for o in out if o[2] == k) for k in range(4)]
         level = next((k for k in (3, 2, 1) if sum(n[k:]) >= 3), 0)
-        days.append({"date": target, "level": level, "n": n, "cells": out,
+        w0 = wf[0]
+        wxrow = [round(w0["rain30"]), round(w0["rain7"]), w0["dry30"], dsr, round(w0["rh"]), round(w0["wind"], 1), round(w0["tmax"], 1),
+                 None if common["nino34"] is None else round(common["nino34"], 2), None if common["dmi"] is None else round(common["dmi"], 2)]
+        days.append({"date": target, "level": level, "n": n, "cells": out, "wx": wxrow,
                      "area": {"rain30": round(wf[0]["rain30"]), "dsr5": dsr, "cdd": cdd,
                               "nino34": common["nino34"], "dmi": common["dmi"]}})
         print("%s · tingkat area %s · sel per kelas %s" % (target, CLS[level], n))
@@ -151,6 +175,8 @@ def main():
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         md = ["# J-FEW · risiko kebakaran", "", "| Tanggal | Tingkat area | Rendah | Sedang | Tinggi | Sangat tinggi |", "|---|---|---|---|---|---|"]
         md += ["| %s | %s | %d | %d | %d | %d |" % (d["date"], CLS[d["level"]], *d["n"]) for d in days]
+        md += ["", "| Tanggal | Hujan 30 hr (mm) | Hujan 7 hr | Hari kering/30 | Hari sejak ≥5 mm | RH % | Angin m/s | Tmax °C | Niño3.4 | DMI |", "|---|---|---|---|---|---|---|---|---|---|"]
+        md += ["| %s | %s |" % (d["date"], " | ".join(str(x) for x in d["wx"])) for d in days]
         md += ["", "Fitur dipakai model: " + ", ".join(feats)] + ["\n⚠ " + x for x in diag]
         open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(md))
 
