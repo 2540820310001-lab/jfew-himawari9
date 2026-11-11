@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v1.1 · 11 Nov 2026)
+J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v1.2 · 11 Nov 2026)
 ------------------------------------------------------------------------------------------------------------
 Pertanyaan model: "Hari ini/besok, sel 1 km mana di sekitar PT JBG yang paling mungkin muncul titik api?"
 Wilayah   : kotak 114.92–115.14 BT, 3.82–3.96 LS (konsesi + buffer + ±3–4 km sekitarnya), sel ±1 km
@@ -73,18 +73,21 @@ def grid():
     return pts
 
 
-ERA = NDVI = FIRMS = STATIC = None
+ERA = NDVI = FIRMS = STATIC = YEARLY = None
 
 
 def init_layers():
     """dibuat SETELAH ee.Initialize (objek Earth Engine tidak boleh dibuat sebelum login)"""
-    global ERA, NDVI, FIRMS, STATIC
+    global ERA, NDVI, FIRMS, STATIC, YEARLY
     ERA = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR")
     NDVI = ee.ImageCollection("MODIS/061/MOD13A1").select("NDVI")
     FIRMS = ee.ImageCollection("FIRMS").select("T21")
     wc = ee.ImageCollection("ESA/WorldCover/v200").first().select("Map").rename("landcover")
     dem = ee.ImageCollection("COPERNICUS/DEM/GLO30").select("DEM").mosaic().setDefaultProjection("EPSG:4326", None, 30)
     STATIC = wc.addBands(dem.rename("elev")).addBands(ee.Terrain.slope(dem).rename("slope"))
+    # ringkasan tahunan (hari ber-api per piksel per tahun) — jauh lebih ringan daripada menjumlah ribuan citra harian tiap tanggal
+    YEARLY = ee.ImageCollection([FIRMS.filterDate("%d-01-01" % y, "%d-01-01" % (y + 1)).map(lambda i: i.gt(0).unmask(0).toByte())
+                                 .sum().toInt16().rename("T21").set("year", y) for y in range(2001, END + 1)])
 
 
 def stack(date):
@@ -102,7 +105,7 @@ def stack(date):
     nd = NDVI.filterDate(d.advance(-40, "day"), d).sort("system:time_start", False).first()
     ndvi = ee.Image(ee.Algorithms.If(nd, ee.Image(nd).multiply(0.0001), ee.Image.constant(-1))).rename("ndvi")
     zero = ee.ImageCollection([ee.Image.constant(0).toByte().rename("T21")])   # cegah koleksi kosong (hari tanpa citra FIRMS)
-    hist = FIRMS.filterDate("2000-11-01", ee.Date.fromYMD(d.get("year"), 1, 1)).map(lambda i: i.gt(0).unmask(0).toByte()).merge(zero).sum().rename("fire_hist")
+    hist = YEARLY.filter(ee.Filter.lt("year", d.get("year"))).merge(zero).sum().rename("fire_hist")   # jumlah hari ber-api tahun-tahun sebelumnya
     lab = FIRMS.filterDate(d, d.advance(1, "day")).map(lambda i: i.gt(0).unmask(0).toByte()).merge(zero).max().rename("label")
     return (tmax.addBands(rh).addBands(wind).addBands(rain).addBands(prev(7).rename("rain7")).addBands(prev(30).rename("rain30"))
             .addBands(prev(90).rename("rain90")).addBands(dry).addBands(ndvi).addBands(hist).addBands(STATIC).addBands(lab))
@@ -114,8 +117,8 @@ BANDS = ["tmax", "rh", "wind", "rain", "rain7", "rain30", "rain90", "dry30", "nd
 def sample_dates(plan):
     """plan: list (date, [(lon,lat),...]) → baris fitur"""
     rows = []
-    for i in range(0, len(plan), 20):
-        chunk = plan[i:i + 20]
+    for i in range(0, len(plan), 10):
+        chunk = plan[i:i + 10]
         def one(item):
             date, pts = item
             fc = ee.FeatureCollection([ee.Feature(ee.Geometry.Point([lo, la]), {"lon": lo, "lat": la, "date": date}) for lo, la in pts])
@@ -127,8 +130,8 @@ def sample_dates(plan):
             if any(p.get(b) is None for b in BANDS):
                 continue
             rows.append(p)
-        if (i // 20) % 10 == 0:
-            print("  tanggal %d/%d · baris %d" % (min(i + 20, len(plan)), len(plan), len(rows)))
+        if (i // 10) % 10 == 0:
+            print("  tanggal %d/%d · baris %d" % (min(i + 10, len(plan)), len(plan), len(rows)), flush=True)
     return rows
 
 
