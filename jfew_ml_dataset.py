@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v1 · 11 Nov 2026)
+J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v1.1 · 11 Nov 2026)
 ------------------------------------------------------------------------------------------------------------
 Pertanyaan model: "Hari ini/besok, sel 1 km mana di sekitar PT JBG yang paling mungkin muncul titik api?"
 Wilayah   : kotak 114.92–115.14 BT, 3.82–3.96 LS (konsesi + buffer + ±3–4 km sekitarnya), sel ±1 km
@@ -73,12 +73,18 @@ def grid():
     return pts
 
 
-ERA = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR")
-NDVI = ee.ImageCollection("MODIS/061/MOD13A1").select("NDVI")
-FIRMS = ee.ImageCollection("FIRMS").select("T21")
-WC = ee.ImageCollection("ESA/WorldCover/v200").first().select("Map").rename("landcover")
-DEM = ee.ImageCollection("COPERNICUS/DEM/GLO30").select("DEM").mosaic().setDefaultProjection("EPSG:4326", None, 30)
-STATIC = WC.addBands(DEM.rename("elev")).addBands(ee.Terrain.slope(DEM).rename("slope"))
+ERA = NDVI = FIRMS = STATIC = None
+
+
+def init_layers():
+    """dibuat SETELAH ee.Initialize (objek Earth Engine tidak boleh dibuat sebelum login)"""
+    global ERA, NDVI, FIRMS, STATIC
+    ERA = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR")
+    NDVI = ee.ImageCollection("MODIS/061/MOD13A1").select("NDVI")
+    FIRMS = ee.ImageCollection("FIRMS").select("T21")
+    wc = ee.ImageCollection("ESA/WorldCover/v200").first().select("Map").rename("landcover")
+    dem = ee.ImageCollection("COPERNICUS/DEM/GLO30").select("DEM").mosaic().setDefaultProjection("EPSG:4326", None, 30)
+    STATIC = wc.addBands(dem.rename("elev")).addBands(ee.Terrain.slope(dem).rename("slope"))
 
 
 def stack(date):
@@ -128,6 +134,7 @@ def sample_dates(plan):
 
 def main():
     J.init_ee()
+    init_layers()
     os.makedirs(OUT, exist_ok=True)
     aoi = ee.Geometry.Rectangle([W, S, E, N])
     fires = fire_days(aoi)
