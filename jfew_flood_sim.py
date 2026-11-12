@@ -1,10 +1,11 @@
 """
-J-FEW · SIMULASI GENANGAN RAIN-ON-GRID (jfew_flood_sim.py · v1 · 12 Nov 2026)
+J-FEW · SIMULASI GENANGAN RAIN-ON-GRID (jfew_flood_sim.py · v1.2 · cari data di beberapa lokasi + pesan jelas · v1.1 · 12 Nov 2026 · data medan boleh di folder utama repo)
 Model aliran permukaan 2D "local inertial" (Bates dkk., 2010 — dipakai LISFLOOD-FP), mirip mode diffusion wave HEC-RAS 2D.
 Medan: flood_data/dem40.npz (topo EOM Agu 2026, grid ±40 m). Void (EOP 2025) dan sungai = penampung/keluaran.
 Limpasan: SCS Curve Number. Dipakai oleh jfew_rain_extreme.py (skenario R5/R25/R100) dan nanti prakiraan harian.
 """
 import json
+import os
 import time
 
 import numpy as np
@@ -13,10 +14,14 @@ from shapely.geometry import shape, Point
 from shapely.ops import transform
 from pyproj import Transformer
 
-DATA = "flood_data/"
+NEED = ["dem40.npz", "voids.geojson", "rivers.geojson", "catchments_rev06_utm50s.geojson"]
+DATA = next((d for d in ["flood_data/", "", "flood_data/flood_data/"] if all(os.path.exists(d + f) for f in NEED)), None)
 
 
 def load():
+    if DATA is None:
+        have = {f: [d or "./" for d in ["flood_data/", "", "flood_data/flood_data/"] if os.path.exists(d + f)] for f in NEED}
+        raise FileNotFoundError("Data medan belum lengkap di repo. Yang ditemukan: %s · isi folder utama: %s" % (have, sorted(os.listdir("."))[:60]))
     d = np.load(DATA + "dem40.npz"); Z = d["Z"]; x0, y0, dg = float(d["x0"]), float(d["y0"]), float(d["dx"])
     ny, nx = Z.shape
     X, Y = np.meshgrid(x0 + np.arange(nx) * dg, y0 + np.arange(ny) * dg)
