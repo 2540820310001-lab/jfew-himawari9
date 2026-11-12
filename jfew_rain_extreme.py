@@ -1,5 +1,5 @@
 """
-J-FEW · HUJAN EKSTREM & SKENARIO GENANGAN (jfew_rain_extreme.py · v1 · 12 Nov 2026)
+J-FEW · HUJAN EKSTREM & SKENARIO GENANGAN (jfew_rain_extreme.py · v1.1 · 12 Nov 2026 · potongan data per bulan, pesan galat lebih jelas)
 1. Hujan harian 2001–sekarang dari satelit (Earth Engine):
      IMERG V07 di titik ombrometer & rata-rata area tambang, CHIRPS v2 rata-rata area
    dikoreksi ke ombrometer PT JBG (rasio kuantil ekor atas pada hari yang sama).
@@ -47,13 +47,16 @@ def satellite_daily():
                                      "ip": i.reduceRegion(ee.Reducer.first(), pt, 11132).values().get(0),
                                      "ia": i.reduceRegion(ee.Reducer.mean(), area, 11132).values().get(0),
                                      "ca": c.reduceRegion(ee.Reducer.mean(), area, 5566).values().get(0)})
-        for a in range(0, n, 190):                                            # dua potong per tahun (batas memori)
-            fc = ee.FeatureCollection(ee.List.sequence(a, min(n, a + 190) - 1).map(feat))
-            for _ in range(3):
+        for a in range(0, n, 31):                                             # potongan ±1 bulan (batas memori/waktu Earth Engine)
+            fc = ee.FeatureCollection(ee.List.sequence(a, min(n, a + 31) - 1).map(feat))
+            res = None
+            for k in range(5):
                 try:
                     res = fc.getInfo(); break
                 except Exception as ex:                                       # noqa: BLE001
-                    print("  ulang", str(ex)[:120]); import time; time.sleep(20)
+                    print("  ulang %d (%s hari %d): %s" % (k + 1, y, a, str(ex)[:200]), flush=True); import time; time.sleep(15 * (k + 1))
+            if res is None:
+                raise RuntimeError("Earth Engine gagal untuk %d hari ke-%d" % (y, a))
             for f in res["features"]:
                 p = f["properties"]
                 rows.append([p["d"], p.get("ip"), p.get("ia"), None if (p.get("ca") is None or p.get("ca") < 0) else p.get("ca")])
@@ -190,4 +193,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as ex:                                                    # noqa: BLE001
+        import traceback; tb = traceback.format_exc(); print(tb)
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("## ❌ Gagal\n\n```\n%s\n```\n" % tb[-3000:])
+        raise
