@@ -1,0 +1,38 @@
+name: J-FEW hujan ekstrem & skenario genangan
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: "Periode ulang yang disimulasikan (pisahkan koma: 2,5,10,25,50,100)"
+        required: false
+        default: "5,25,100"
+      cn:
+        description: "Curve Number limpasan (default 85)"
+        required: false
+        default: "85"
+
+jobs:
+  extreme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api numpy pandas scipy statsmodels shapely pyproj matplotlib
+      - name: Hujan ekstrem 2001–sekarang + simulasi genangan
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          JFEW_WEBAPP_URL: ${{ secrets.JFEW_WEBAPP_URL }}
+          JFEW_BURN_TOKEN: ${{ secrets.JFEW_BURN_TOKEN }}
+          SCENARIOS: ${{ github.event.inputs.scenarios }}
+          CN: ${{ github.event.inputs.cn }}
+        run: python3 jfew_rain_extreme.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jfew-hujan-ekstrem
+          path: extreme_out/
