@@ -1,0 +1,30 @@
+name: J-FEW status void harian (musim hujan)
+
+on:
+  schedule:
+    - cron: "41 21 * * *"      # 05.41 WITA tiap hari (skenario R5/R25/R100 otomatis tiap Senin)
+  workflow_dispatch:
+    inputs:
+      run_scenarios:
+        description: "Hitung ulang skenario R5/R25/R100 (1 = ya)"
+        required: false
+        default: "1"
+
+jobs:
+  void:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api numpy scipy shapely pyproj pillow
+      - name: Prakiraan status void & genangan → peta
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          JFEW_WEBAPP_URL: ${{ secrets.JFEW_WEBAPP_URL }}
+          JFEW_BURN_TOKEN: ${{ secrets.JFEW_BURN_TOKEN }}
+          RUN_SCENARIOS: ${{ github.event.inputs.run_scenarios }}
+        run: python3 jfew_void_daily.py
