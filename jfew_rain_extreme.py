@@ -1,5 +1,5 @@
 """
-J-FEW · HUJAN EKSTREM & SKENARIO GENANGAN (jfew_rain_extreme.py · v1.2 · hasil hujan tetap tersimpan walau simulasi gagal · v1.1 · 12 Nov 2026 · potongan data per bulan, pesan galat lebih jelas)
+J-FEW · HUJAN EKSTREM & SKENARIO GENANGAN (jfew_rain_extreme.py · v1.3 · PERBAIKAN pola hujan Mononobe (kedalaman kumulatif) · v1.2 · hasil hujan tetap tersimpan walau simulasi gagal · v1.1 · 12 Nov 2026 · potongan data per bulan, pesan galat lebih jelas)
 1. Hujan harian 2001–sekarang dari satelit (Earth Engine):
      IMERG V07 di titik ombrometer & rata-rata area tambang, CHIRPS v2 rata-rata area
    dikoreksi ke ombrometer PT JBG (rasio kuantil ekor atas pada hari yang sama).
@@ -109,7 +109,7 @@ def top_events(s, k, n=20, sep=5):
 
 def design_hyeto(R1, R3):
     """hujan 3 hari: hari ke-2 = R1 (pola Mononobe, puncak jam ke-4); sisa (R3−R1) merata di hari 1 & 3"""
-    t = np.arange(1, 25); depth = R1 / 24 * (24 / t) ** (2 / 3); inc = np.diff(np.r_[0, depth])
+    t = np.arange(1, 25); depth = R1 / 24 * (24 / t) ** (2 / 3) * t; inc = np.diff(np.r_[0, depth])   # v1.3: kedalaman kumulatif = I·t
     order = [3]; l, r = 2, 4
     while len(order) < 24:
         if r < 24: order.append(r); r += 1
