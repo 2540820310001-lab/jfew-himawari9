@@ -1,5 +1,5 @@
 """
-J-FEW · HUJAN EKSTREM & SKENARIO GENANGAN (jfew_rain_extreme.py · v1.1 · 12 Nov 2026 · potongan data per bulan, pesan galat lebih jelas)
+J-FEW · HUJAN EKSTREM & SKENARIO GENANGAN (jfew_rain_extreme.py · v1.2 · hasil hujan tetap tersimpan walau simulasi gagal · v1.1 · 12 Nov 2026 · potongan data per bulan, pesan galat lebih jelas)
 1. Hujan harian 2001–sekarang dari satelit (Earth Engine):
      IMERG V07 di titik ombrometer & rata-rata area tambang, CHIRPS v2 rata-rata area
    dikoreksi ke ombrometer PT JBG (rasio kuantil ekor atas pada hari yang sama).
@@ -165,9 +165,15 @@ def main():
     scn = [int(v) for v in (os.environ.get("SCENARIOS") or "5,25,100").split(",")]
     CN = float(os.environ.get("CN") or 85)
     res = {"faktor": fac, "frekuensi": FR, "kejadian": ev, "skenario": {}}
-    if "imerg_titik_1d" in FR and "imerg_titik_3d" in FR:
+    json.dump(res, open(OUT + "/hasil_hujan_ekstrem.json", "w"), default=float, indent=1)        # simpan dulu hasil hujan
+    open(OUT + "/ringkasan.md", "w").write("\n".join(md))
+    Gm = None
+    try:
         import jfew_flood_sim as M
         Gm = M.load()
+    except Exception as ex:                                                    # noqa: BLE001
+        md += ["", "## ⚠ Simulasi genangan dilewati", "", "```", str(ex)[:1500], "```"]
+    if Gm is not None and "imerg_titik_1d" in FR and "imerg_titik_3d" in FR:
         b1 = [d for d in FR["imerg_titik_1d"]["dist"] if d["name"] == FR["imerg_titik_1d"]["best"]][0]["R"]
         b3 = [d for d in FR["imerg_titik_3d"]["dist"] if d["name"] == FR["imerg_titik_3d"]["best"]][0]["R"]
         md += ["", "## Skenario genangan (hujan 3 hari, topo EOM Agu 2026, CN %.0f)" % CN, ""]
