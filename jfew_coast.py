@@ -1,5 +1,5 @@
 """
-J-FEW · PESISIR & CUACA EKSTREM (jfew_coast.py · v1 · 13 Nov 2026)
+J-FEW · PESISIR & CUACA EKSTREM (jfew_coast.py · v1.1 · 13 Nov 2026 · + tiap sumber data dibungkus try, error ditulis di Summary)
 Tiap 6 jam:
   1. Gelombang & pasang 7 hari di depan port (Open-Meteo Marine: wave_height, wave_period, wave_direction, sea_level_height_msl)
      kategori BMKG: tenang <0,5 · rendah 0,5–1,25 · sedang 1,25–2,5 · tinggi 2,5–4 · sangat tinggi 4–6 · ekstrem >6 m
@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import traceback
 import urllib.request
 
 import jfew_burn_job as J
@@ -102,7 +103,18 @@ def bmkg_warning():
 
 def main():
     now = dt.datetime.now(WITA)
-    M = marine(); W = weather48(); Q = quake(); B = bmkg_warning()
+    errs = []
+
+    def safe(name, fn, default):
+        try:
+            return fn()
+        except Exception as ex:                                # noqa: BLE001
+            errs.append("%s: %s" % (name, str(ex)[:200])); print("GAGAL", name); traceback.print_exc()
+            return default
+    M = safe("gelombang (Open-Meteo Marine)", marine, None)
+    W = safe("angin & petir (Open-Meteo)", weather48, [])
+    Q = safe("gempa BMKG", quake, {})
+    B = safe("peringatan BMKG", bmkg_warning, None)
     res = dict(issued=now.strftime("%Y-%m-%d %H:%M"), port=PORT, limits=dict(wave=WAVE_LIMIT, gust_warn=GUST_WARN, gust_stop=GUST_STOP), wind=W, quake=Q, bmkg=B)
     if M:
         hs = [v for v in M["hs"] if v is not None]
@@ -128,12 +140,27 @@ def main():
     if Q.get("mag") is not None:
         warn.append(dict(level="merah" if Q["tsunami"] else "abu", teks="Gempa terakhir M%.1f · %s km dari port · %s" % (Q["mag"], Q["jarak_km"], Q["potensi"] or "")))
     res["warn"] = warn
-    print(J.web({"action": "coast", "result": res}))
+    res["errors"] = errs
+    try:
+        print(J.web({"action": "coast", "result": res}))
+    except Exception as ex:                                    # noqa: BLE001
+        msg = str(ex)
+        hint = ""
+        if "action tidak dikenal" in msg:
+            hint = "Apps Script belum versi baru: ganti ZZZ_JFEW_BURN_AUTO.gs (v1.16) lalu Kelola deployment → ✏️ → Versi baru."
+        elif "JFEW_COAST_SAVE_" in msg or "is not defined" in msg:
+            hint = "File ZZZ_JFEW_COAST.gs belum ditambahkan di Apps Script, atau deploy belum versi baru."
+        elif "token" in msg:
+            hint = "Secret JFEW_BURN_TOKEN tidak cocok dengan Script Property JFEW_BURN_TOKEN."
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("# J-FEW pesisir — GAGAL kirim ke peta\n\n`%s`\n\n%s\n\nSumber data bermasalah: %s\n" % (msg[:400], hint, "; ".join(errs) or "tidak ada"))
+        raise
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         mm = res.get("marine") or {}
         md = ["# J-FEW · pesisir & cuaca ekstrem", "", "Gelombang sekarang %s m (%s) · maks 7 hari %s m (%s, %s) · pasang tertinggi %s m (%s) · jam aman tongkang %s/%s" %
               (mm.get("now"), mm.get("now_cat"), mm.get("max"), mm.get("max_cat"), mm.get("max_t"), mm.get("tide_max"), mm.get("tide_max_t"), mm.get("jam_aman"), mm.get("jam_total")),
-              "", "Angin maks 48 jam: %s km/jam (%s)" % (g and g["gust"], g and g["t"]), "", "Peringatan:"] + ["- " + w["teks"] for w in warn]
+              "", "Angin maks 48 jam: %s km/jam (%s)" % (g and g["gust"], g and g["t"]), "", "Peringatan:"] + ["- " + w["teks"] for w in warn] + \
+             (["", "Sumber data bermasalah (panel tetap jalan):"] + ["- " + e for e in errs] if errs else [])
         open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(md))
 
 
