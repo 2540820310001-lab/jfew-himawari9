@@ -2,9 +2,9 @@ name: J-FEW Himawari-9 Downloader
 
 on:
   schedule:
-    # Setiap 10 menit, digeser 3 menit dari pergantian jam
-    # (jadwal tepat di menit 00 lebih sering tertunda di GitHub).
-    - cron: "3-59/10 * * * *"
+    # Cadangan saja — pemicu utama dari Apps Script (ZZZ_JFEW_H9_KICK v1.1:
+    # siang 09–18 WITA tiap 10 menit, malam tiap 30 menit). Jangan dibuat rapat lagi.
+    - cron: "17 */3 * * *"
   workflow_dispatch: {}
 
 concurrency:
