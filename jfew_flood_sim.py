@@ -1,5 +1,5 @@
 """
-J-FEW · SIMULASI GENANGAN RAIN-ON-GRID (jfew_flood_sim.py · v1.2 · cari data di beberapa lokasi + pesan jelas · v1.1 · 12 Nov 2026 · data medan boleh di folder utama repo)
+J-FEW · SIMULASI GENANGAN RAIN-ON-GRID (jfew_flood_sim.py · v1.3 · isi cekungan semu < 0,3 m + saring genangan kecil · v1.2 · cari data di beberapa lokasi + pesan jelas · v1.1 · 12 Nov 2026 · data medan boleh di folder utama repo)
 Model aliran permukaan 2D "local inertial" (Bates dkk., 2010 — dipakai LISFLOOD-FP), mirip mode diffusion wave HEC-RAS 2D.
 Medan: flood_data/dem40.npz (topo EOM Agu 2026, grid ±40 m). Void (EOP 2025) dan sungai = penampung/keluaran.
 Limpasan: SCS Curve Number. Dipakai oleh jfew_rain_extreme.py (skenario R5/R25/R100) dan nanti prakiraan harian.
@@ -18,11 +18,38 @@ NEED = ["dem40.npz", "voids.geojson", "rivers.geojson", "catchments_rev06_utm50s
 DATA = next((d for d in ["flood_data/", "", "flood_data/flood_data/"] if all(os.path.exists(d + f) for f in NEED)), None)
 
 
+def fill_shallow(Z, max_depth=0.3):
+    """isi cekungan semu (dangkal < max_depth m) hasil interpolasi kontur — priority-flood (Barnes dkk., 2014).
+    Cekungan nyata yang lebih dalam (pit, sump, void) dibiarkan."""
+    import heapq
+    from scipy import ndimage
+    ny, nx = Z.shape; nan = np.isnan(Z); z = np.where(nan, -1e9, Z); F = z.copy(); done = nan.copy(); pq = []
+    edge = np.zeros(Z.shape, bool); edge[[0, -1], :] = True; edge[:, [0, -1]] = True
+    edge |= ndimage.binary_dilation(nan) & ~nan                              # tepi data = jalan keluar air
+    for j, i in zip(*np.nonzero(edge & ~nan)):
+        heapq.heappush(pq, (F[j, i], j, i)); done[j, i] = True
+    while pq:
+        e, j, i = heapq.heappop(pq)
+        for dj, di in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+            jj, ii = j + dj, i + di
+            if 0 <= jj < ny and 0 <= ii < nx and not done[jj, ii]:
+                done[jj, ii] = True; F[jj, ii] = max(F[jj, ii], e); heapq.heappush(pq, (F[jj, ii], jj, ii))
+    dep = np.where(nan, 0, F - z)
+    lab, n = ndimage.label(dep > 1e-3)
+    if n == 0: return Z, 0
+    mx = ndimage.maximum(dep, lab, index=np.arange(1, n + 1))
+    shallow = np.isin(lab, np.nonzero(mx < max_depth)[0] + 1)
+    out = Z.copy(); out[shallow] = F[shallow]
+    return out, int((mx < max_depth).sum())
+
+
 def load():
     if DATA is None:
         have = {f: [d or "./" for d in ["flood_data/", "", "flood_data/flood_data/"] if os.path.exists(d + f)] for f in NEED}
         raise FileNotFoundError("Data medan belum lengkap di repo. Yang ditemukan: %s · isi folder utama: %s" % (have, sorted(os.listdir("."))[:60]))
     d = np.load(DATA + "dem40.npz"); Z = d["Z"]; x0, y0, dg = float(d["x0"]), float(d["y0"]), float(d["dx"])
+    Z, nfill = fill_shallow(Z)
+    print("cekungan semu diisi:", nfill)
     ny, nx = Z.shape
     X, Y = np.meshgrid(x0 + np.arange(nx) * dg, y0 + np.arange(ny) * dg)
     voids = json.load(open(DATA + "voids.geojson"))["features"]
@@ -83,6 +110,17 @@ def run(G, hyeto_mm, CN=85, n=0.045, extra_h=6, verbose=True):
     return dict(hmax=hmax, vmax=vmax, tpk=tpk, vin=vin, sink=sink)
 
 
+def wet_mask(R, min_cells=3):
+    """genangan yang ditampilkan/dihitung: ≥0,3 m selalu; 0,1–0,3 m hanya bila kelompoknya ≥ min_cells sel (±0,5 ha)"""
+    from scipy import ndimage
+    land = ~R["sink"]; hm = R["hmax"]; w = land & (hm >= 0.1)
+    lab, n = ndimage.label(w)
+    if n == 0: return w
+    size = ndimage.sum(w, lab, index=np.arange(1, n + 1))
+    big = np.isin(lab, np.nonzero(size >= min_cells)[0] + 1)
+    return (land & (hm >= 0.3)) | big
+
+
 def summarize(G, R):
     """status tiap void (naik, sisa ke spillway) + luas genangan + titik genangan utama per catchment"""
     from scipy import ndimage
@@ -96,13 +134,13 @@ def summarize(G, R):
         voids.append(dict(void=nm, ma_awal=p["elev_actual"], naik_m=round(rise, 2), ma_akhir=round(new, 2), spill=sp,
                           sisa_m=None if fb is None else round(fb, 2), status=st, volume_m3=int(R["vin"][k])))
     land = ~R["sink"]; A = 40 * 40 / 1e4; hm = R["hmax"]
-    area = {">0,1 m": round(float((land & (hm > 0.1)).sum() * A), 1), ">0,3 m": round(float((land & (hm > 0.3)).sum() * A), 1),
+    area = {">0,1 m": round(float(wet_mask(R).sum() * A), 1), ">0,3 m": round(float((land & (hm > 0.3)).sum() * A), 1),
             ">0,5 m": round(float((land & (hm > 0.5)).sum() * A), 1), ">1 m": round(float((land & (hm > 1)).sum() * A), 1),
             "arus berbahaya": round(float((land & (hm > 0.2) & (hm * R["vmax"] > 0.6)).sum() * A), 1)}
-    lab, n = ndimage.label(land & (hm > 0.5)); spots = []
+    lab, n = ndimage.label(wet_mask(R)); spots = []                        # kelompok genangan (tersaring) ≥ 0,5 ha
     for i in range(1, n + 1):
         m = lab == i; a = m.sum() * A
-        if a < 1.5: continue
+        if a < 0.5 or hm[m].max() < 0.3: continue
         jj, ii = np.nonzero(m); cx = G["x0"] + ii.mean() * G["dg"]; cy = G["y0"] + jj.mean() * G["dg"]
         where = next((p["NAME"] for p, g in G["cat"] if g.contains(Point(cx, cy))), "di luar catchment Rev06")
         spots.append(dict(lokasi=where, luas_ha=round(a, 1), dalam_maks_m=round(float(hm[m].max()), 1), puncak_jam=round(float(np.median(R["tpk"][m]))), lon=round(cx, 5), lat=round(cy, 5)))
