@@ -2,7 +2,7 @@ name: J-FEW pesisir & cuaca ekstrem (gelombang, pasang, angin, gempa)
 
 on:
   schedule:
-    - cron: "11 */6 * * *"     # tiap 6 jam (4x sehari)
+    - cron: "11 */6 * * *"     # tiap 6 jam (4x sehari, hemat kuota Actions)
   workflow_dispatch:
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install earthengine-api
-      - name: Pesisir & cuaca ekstrem ke peta
+      - name: Pesisir & cuaca ekstrem → peta
         env:
           EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
           EE_PROJECT: ${{ secrets.EE_PROJECT }}
