@@ -1,5 +1,5 @@
 """
-J-FEW · PERUBAHAN GARIS PANTAI (jfew_shoreline.py · v1 · 13 Nov 2026)
+J-FEW · PERUBAHAN GARIS PANTAI (jfew_shoreline.py · v1.1 · 13 Nov 2026 · NaN/inf dibersihkan sebelum dikirim · Summary ditulis sebelum kirim)
 Metode ala DSAS (Digital Shoreline Analysis System, USGS) di pantai konsesi PT JBG:
   1. Komposit tahunan Landsat 5/7/8/9 Collection-2 SR (semua citra bebas awan dalam 1 tahun, median)
      → MNDWI = (Hijau − SWIR1)/(Hijau + SWIR1); air bila MNDWI > 0. Median setahun meredam efek pasang surut.
@@ -168,8 +168,13 @@ def regress(yrs, pos):
         if k.all() or k.sum() < MIN_YEARS:
             break
         yrs, pos = yrs[k], pos[k]
+    if np.ptp(pos) == 0:                                        # posisi sama persis tiap tahun → stabil (laju 0); R² tidak terdefinisi
+        n = len(yrs); xm = yrs.mean()
+        return dict(slope=0.0, ic=float(pos[0]), ci=0.0, r2=float("nan"), n=n, yrs=yrs, pos=pos, tc=stats.t.ppf(0.975, n - 2), se=0.0, xm=xm, sxx=((yrs - xm) ** 2).sum())
     r = stats.linregress(yrs, pos)
     n = len(yrs); tc = stats.t.ppf(0.975, n - 2)
+    if not all(np.isfinite([r.slope, r.intercept, r.stderr, r.rvalue])):
+        return None
     xm = yrs.mean(); sxx = ((yrs - xm) ** 2).sum(); se = math.sqrt(max(((pos - (r.slope * yrs + r.intercept)) ** 2).sum() / (n - 2), 0))
     return dict(slope=r.slope, ic=r.intercept, ci=tc * r.stderr, r2=r.rvalue ** 2, n=n, yrs=yrs, pos=pos, tc=tc, se=se, xm=xm, sxx=sxx)
 
@@ -276,6 +281,19 @@ def summary(trs, ast):
     return S
 
 
+def clean(o):
+    """NaN / inf → None (JSON standar), numpy → tipe Python"""
+    if isinstance(o, dict):
+        return {str(k): clean(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [clean(v) for v in o]
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, (float, np.floating)):
+        return float(o) if math.isfinite(float(o)) else None
+    return o
+
+
 def main():
     now = dt.date.today()
     last_full = now.year - 1 if now.month < 7 else now.year      # tahun berjalan dipakai bila sudah ≥ 6 bulan
@@ -287,20 +305,21 @@ def main():
     res = dict(issued=now.isoformat(), years=years, last=last, box=BOX, step=STEP_M, transects=trs, assets=ast,
                summary=summary(trs, ast), proj_years=[now.year + k for k in PROJ], scenes={str(y): stack[y][1] for y in years},
                metode="Landsat 5/7/8/9 C2 SR, komposit median tahunan, MNDWI>0, transek %d m, LRR (DSAS) selang 95%%" % STEP_M)
-    s = json.dumps(res)
+    res = clean(res)
+    s = json.dumps(res, allow_nan=False)
     print("transek", len(trs), "· ukuran", len(s) // 1024, "KB")
-    print(J.web({"action": "shore", "result": res}))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
-        S = res["summary"]
+        S = res["summary"]; ast = res["assets"]
         md = ["# J-FEW · perubahan garis pantai", "", "Tahun %d–%d · %d transek · kelas %s" % (years[0], last, len(trs), S["kelas"]), ""]
         if "terparah" in S:
-            md.append("- Abrasi terparah: %.1f ± %.1f m/th (%s)" % (S["terparah"]["laju"], S["terparah"]["ci"], S["terparah"]["lokasi"]))
+            md.append("- Abrasi terparah: %s ± %s m/th (%s)" % (S["terparah"]["laju"], S["terparah"]["ci"], S["terparah"]["lokasi"]))
         if "terbesar" in S:
-            md.append("- Akresi terbesar: +%.1f ± %.1f m/th (%s)" % (S["terbesar"]["laju"], S["terbesar"]["ci"], S["terbesar"]["lokasi"]))
+            md.append("- Akresi terbesar: %s ± %s m/th (%s)" % (S["terbesar"]["laju"], S["terbesar"]["ci"], S["terbesar"]["lokasi"]))
         for a in ast:
             md.append("- %s: jarak ke garis pantai %s m, laju %s m/th%s" % (a["nama"], a.get("jarak"), a.get("laju"), ", pantai mencapai aset ± %s" % a["tahun_nol"] if a.get("tahun_nol") else ""))
         md += ["", "Jumlah citra per tahun: " + ", ".join("%s:%s" % (y, stack[y][1]) for y in years)]
-        open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(md))
+        open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(md) + "\n\n")
+    print(J.web({"action": "shore", "result": res}))
 
 
 if __name__ == "__main__":
