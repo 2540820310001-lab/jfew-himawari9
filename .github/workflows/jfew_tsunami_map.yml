@@ -1,0 +1,37 @@
+name: J-FEW peta peringatan tsunami (Telegram)
+
+on:
+  workflow_dispatch:
+    inputs:
+      lat: { description: "Lintang pusat gempa", required: true, default: "-5.2" }
+      lon: { description: "Bujur pusat gempa", required: true, default: "112.8" }
+      mag: { description: "Magnitudo", required: true, default: "7.1" }
+      km: { description: "Jarak ke port JBG (km)", required: true, default: "274" }
+      wilayah: { description: "Wilayah BMKG", required: false, default: "-" }
+      potensi: { description: "Potensi BMKG", required: false, default: "Berpotensi tsunami" }
+      waktu: { description: "Tanggal & jam", required: false, default: "" }
+      uji: { description: "1 = uji coba", required: false, default: "1" }
+
+jobs:
+  peta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install matplotlib
+      - name: Gambar peta & kirim ke Telegram
+        env:
+          JFEW_WEBAPP_URL: ${{ secrets.JFEW_WEBAPP_URL }}
+          JFEW_BURN_TOKEN: ${{ secrets.JFEW_BURN_TOKEN }}
+          Q_LAT: ${{ inputs.lat }}
+          Q_LON: ${{ inputs.lon }}
+          Q_MAG: ${{ inputs.mag }}
+          Q_KM: ${{ inputs.km }}
+          Q_WILAYAH: ${{ inputs.wilayah }}
+          Q_POTENSI: ${{ inputs.potensi }}
+          Q_WAKTU: ${{ inputs.waktu }}
+          Q_UJI: ${{ inputs.uji }}
+        run: python3 jfew_tsunami_map.py
