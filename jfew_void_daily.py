@@ -1,5 +1,5 @@
 """
-J-FEW · STATUS VOID & PRAKIRAAN GENANGAN HARIAN (jfew_void_daily.py · v1 · 13 Nov 2026)
+J-FEW · STATUS VOID & PRAKIRAAN GENANGAN HARIAN (jfew_void_daily.py · v1.1 · 13 Nov 2026 · genangan disaring, titik genangan utama untuk popup)
 Tiap pagi:
   1. muka air & debit pompa terbaru tiap void dari sheet "Muka Air Void" (Apps Script action void_input; cadangan voids.geojson)
   2. prakiraan hujan per jam 72 jam ke depan (Open-Meteo, rata-rata 3 titik area tambang)
@@ -70,7 +70,7 @@ def levels(G):
 def png(G, R):
     """citra genangan RGBA (sel 40 m) untuk L.imageOverlay"""
     from PIL import Image
-    hm = np.where(R["sink"], 0, R["hmax"]); ny, nx = hm.shape
+    hm = np.where(M.wet_mask(R), R["hmax"], 0); ny, nx = hm.shape          # v1.1: tanpa sel genangan tunggal yang dangkal
     rgba = np.zeros((ny, nx, 4), np.uint8)
     for lo, hi, c in [(0.1, 0.3, (179, 229, 252, 170)), (0.3, 0.5, (79, 195, 247, 190)), (0.5, 1, (2, 136, 209, 210)), (1, 999, (1, 87, 155, 225))]:
         rgba[(hm >= lo) & (hm < hi)] = c
@@ -94,7 +94,7 @@ def one(G, L, hy, label, CN, pump_hours):
         out.append(dict(void="M23EE" if nm == "M2EE" else nm, ma=lv["ma"], tgl=lv["tgl"], sumber=lv["sumber"], pompa=lv["pompa"], naik=round(rise, 2), ma_pred=round(ma1, 2),
                         spill=v["spill"], sisa=sisa, status="–" if sisa is None else status(sisa), volume_m3=v["volume_m3"]))
     return dict(label=label, hujan_mm=round(float(np.sum(hy)), 1), hujan_maks_jam=round(float(np.max(hy)), 1), voids=out,
-                area_ha=S["area_ha"], spots=S["spots"][:6], png=png(G, R))
+                area_ha=S["area_ha"], spots=S["spots"][:10], png=png(G, R))
 
 
 def main():
