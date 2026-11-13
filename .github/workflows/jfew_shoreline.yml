@@ -1,0 +1,25 @@
+name: J-FEW perubahan garis pantai (tahunan, DSAS)
+
+on:
+  schedule:
+    - cron: "37 1 20 1 *"      # setahun sekali: 20 Januari 09.37 WITA (data tahun sebelumnya sudah lengkap)
+  workflow_dispatch:
+
+jobs:
+  shore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api numpy scipy scikit-image
+      - name: Garis pantai tahunan & laju perubahan ke peta
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          JFEW_WEBAPP_URL: ${{ secrets.JFEW_WEBAPP_URL }}
+          JFEW_BURN_TOKEN: ${{ secrets.JFEW_BURN_TOKEN }}
+          SHORE_ASSETS: ${{ vars.SHORE_ASSETS }}
+        run: python3 jfew_shoreline.py
