@@ -1,5 +1,5 @@
 """
-J-FEW · PRAKIRAAN MUSIM (jfew_season.py · v1 · 13 Nov 2026)
+J-FEW · PRAKIRAAN MUSIM (jfew_season.py · v1.1 · 13 Nov 2026 · + normal bulanan & hujan rencana 3 hari untuk panel)
 Sebulan sekali (tgl 12, setelah NOAA CPC terbit Kamis ke-2) atau manual:
   1. ENSO & IOD teramati: Niño3.4 & DMI bulanan (NOAA PSL)
   2. Prakiraan ENSO resmi: tabel peluang kekuatan Niño-3.4 NOAA CPC (ENSO strengths, per musim 3-bulanan)
@@ -161,7 +161,9 @@ def main():
                     tingkat="tinggi" if p >= 50 else "sedang" if p >= 25 else "rendah",
                     analog=sorted([r for r in hist if r["kategori"] == ("El Niño" if tgt["p_elnino"] >= max(tgt["p_netral"], tgt["p_lanina"]) else "La Niña" if tgt["p_lanina"] >= tgt["p_netral"] else "Netral")],
                                   key=lambda r: -r["api"])[:4])
-    res = dict(issued=now.strftime("%Y-%m-%d %H:%M"), obs=obs, cpc=cpc, cpc_issued=cpc_issued, rain=rain, seas5=seas_src,
+    res = dict(issued=now.strftime("%Y-%m-%d %H:%M"), normal={str(k): v for k, v in NOR.items()},
+               r3_rencana={"T": [2, 5, 10, 25, 50, 100], "R3": [214, 264, 290, 318, 336, 352]},   # hujan 3 hari IMERG terkoreksi (jfew_rain_extreme.py)
+               obs=obs, cpc=cpc, cpc_issued=cpc_issued, rain=rain, seas5=seas_src,
                dasarian=das_list, onset=onset, fire=fire, cond=cond, hist=hist, heavy=HEAVY)
     print(J.web({"action": "season", "result": res}))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
