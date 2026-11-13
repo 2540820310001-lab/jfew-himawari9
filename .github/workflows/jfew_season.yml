@@ -1,0 +1,24 @@
+name: J-FEW prakiraan musim (ENSO, IOD, hujan 6 bulan)
+
+on:
+  schedule:
+    - cron: "23 1 12 * *"      # tgl 12 tiap bulan, 09.23 WITA (setelah NOAA CPC terbit Kamis ke-2)
+  workflow_dispatch:
+
+jobs:
+  season:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api numpy
+      - name: Prakiraan musim → peta
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          JFEW_WEBAPP_URL: ${{ secrets.JFEW_WEBAPP_URL }}
+          JFEW_BURN_TOKEN: ${{ secrets.JFEW_BURN_TOKEN }}
+        run: python3 jfew_season.py
