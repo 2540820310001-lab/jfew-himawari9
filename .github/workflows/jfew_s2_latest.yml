@@ -1,0 +1,24 @@
+name: J-FEW citra Sentinel-2 terbaru (tanpa awan)
+
+on:
+  schedule:
+    - cron: "43 2 * * 1"       # tiap Senin 10.43 WITA
+  workflow_dispatch:
+
+jobs:
+  s2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install earthengine-api numpy pillow
+      - name: Komposit piksel bersih terbaru → peta
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          JFEW_WEBAPP_URL: ${{ secrets.JFEW_WEBAPP_URL }}
+          JFEW_BURN_TOKEN: ${{ secrets.JFEW_BURN_TOKEN }}
+        run: python3 jfew_s2_latest.py
