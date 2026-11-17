@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2.4 · wilayah diperluas ke pantai selatan, sel air/laut tidak dipakai · v2.3 · tanpa Niño3.4/DMI secara default (El Niño 2026 di luar rentang data latih; set ML_USE_ENSO=1 untuk menyertakan) · v2.2 · + ambang kelas risiko & model disimpan ke repo · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
+J-FEW · MACHINE LEARNING TAHAP 1 — TABEL DATA PELUANG KEBAKARAN HARIAN (jfew_ml_dataset.py · v2.5 · + sebaran data latih per kelas risiko (api vs tanpa api) · v2.4 · wilayah diperluas ke pantai selatan, sel air/laut tidak dipakai · v2.3 · tanpa Niño3.4/DMI secara default (El Niño 2026 di luar rentang data latih; set ML_USE_ENSO=1 untuk menyertakan) · v2.2 · + ambang kelas risiko & model disimpan ke repo · 11 Nov 2026 · + ENSO/IOD, kekeringan beruntun, tutupan lahan tahunan, jarak permukiman, RF vs gradient boosting, peluang terkalibrasi)
 ------------------------------------------------------------------------------------------------------------
 Pertanyaan model: "Hari ini/besok, sel 1 km mana di sekitar PT JBG yang paling mungkin muncul titik api?"
 Wilayah   : kotak 114.92–115.14 BT, 3.82–3.96 LS (konsesi + buffer + ±3–4 km sekitarnya), sel ±1 km
@@ -277,17 +277,32 @@ def model_report(path):
     bg = oof[(~df.date.isin(fire_dates)).values]
     thr = {"p75": float(np.percentile(bg, 75)), "p90": float(np.percentile(bg, 90)), "p97": float(np.percentile(bg, 97))}
     print("ambang kelas:", thr)
+    # v2.5 · berapa sampel latih jatuh di tiap kelas (skor out-of-fold → tidak "menilai diri sendiri")
+    cls = np.digitize(oof, [thr["p75"], thr["p90"], thr["p97"]])
+    isf = (df.label == 1).values; isbg = (~df.date.isin(fire_dates)).values
+    dist = {"semua": np.bincount(cls, minlength=4).tolist(), "api": np.bincount(cls[isf], minlength=4).tolist(),
+            "tanpa_api": np.bincount(cls[isbg], minlength=4).tolist(), "lainnya": np.bincount(cls[~isf & ~isbg], minlength=4).tolist()}
+    print("sebaran kelas:", dist)
     import sklearn
     joblib.dump({"model": final, "iso": iso, "features": feats, "best": best, "prev_sample": prev_sample, "thr": thr,
                  "trained": "2001-%d" % END, "sklearn": sklearn.__version__}, OUT + "/jfew_ml_model.joblib", compress=3)
     open(OUT + "/sklearn_version.txt", "w").write(sklearn.__version__)
-    json.dump({"results": res, "per_year": per_year, "importance": imp, "best": best, "features": feats}, open(OUT + "/jfew_ml_metrics.json", "w"), default=float, indent=1)
+    json.dump({"results": res, "per_year": per_year, "importance": imp, "best": best, "features": feats, "thr": thr, "class_dist": dist},
+              open(OUT + "/jfew_ml_metrics.json", "w"), default=float, indent=1)
     t = ["| Model | AUC | Average precision | Brier | % api tertangkap di 10 % sel teratas |", "|---|---|---|---|---|"]
     t += ["| %s%s | %.3f | %.3f | %.3f | %.0f%% |" % (r[0], " ✓" if r[0] == best else "", r[1], r[2], r[3], r[4] * 100) for r in res]
     t += ["", "Per tahun (model terpilih): " + " · ".join("%d: AP %.2f (%d api)" % (y, ap, n) for y, n, ap in per_year), "",
           "Fitur paling berpengaruh (permutation importance, Δ AP): " + ", ".join("%s (%.3f)" % (k, v) for k, v in imp), "",
           "Fitur dipakai (%d): %s" % (len(feats), ", ".join(feats)), "",
-          "Ambang kelas risiko (skor RF, persentil hari tanpa api): Sedang ≥ %.3f (P75) · Tinggi ≥ %.3f (P90) · Sangat tinggi ≥ %.3f (P97)" % (thr["p75"], thr["p90"], thr["p97"])]
+          "Ambang kelas risiko (skor RF, persentil hari tanpa api): Sedang ≥ %.3f (P75) · Tinggi ≥ %.3f (P90) · Sangat tinggi ≥ %.3f (P97)" % (thr["p75"], thr["p90"], thr["p97"]), "",
+          "### Sebaran data latih per kelas risiko (skor out-of-fold)", "",
+          "| Kelompok sampel | Jumlah | Rendah | Sedang | Tinggi | Sangat tinggi |", "|---|---|---|---|---|---|"]
+    lab = {"api": "Sel-hari ADA api", "tanpa_api": "Sel-hari pada hari TANPA api", "lainnya": "Sel tanpa api pada hari ber-api", "semua": "Semua sampel"}
+    for k in ("api", "tanpa_api", "lainnya", "semua"):
+        n_ = sum(dist[k]) or 1
+        t.append("| %s | %s | %s |" % (lab[k], "{:,}".format(sum(dist[k])), " | ".join("{:,} ({:.1f}%)".format(c, 100.0 * c / n_) for c in dist[k])))
+    t += ["", "Sangat tinggi menangkap **%.0f%%** sampel ber-api, sedangkan hanya %.0f%% sampel hari tanpa api (≈3%% menurut definisi P97)." %
+          (100.0 * dist["api"][3] / (sum(dist["api"]) or 1), 100.0 * dist["tanpa_api"][3] / (sum(dist["tanpa_api"]) or 1))]
     return "\n".join(t)
 
 
