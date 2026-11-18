@@ -1,0 +1,37 @@
+name: J-FEW hindcast risiko kebakaran (sekali jalan, tidak masuk sistem)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Tanggal awal (YYYY-MM-DD)"
+        required: false
+        default: "2026-07-01"
+      end:
+        description: "Tanggal akhir (kosong = kemarin)"
+        required: false
+        default: ""
+
+jobs:
+  hindcast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Pasang paket (scikit-learn sama dengan versi model)
+        run: pip install earthengine-api numpy pandas joblib shapely "scikit-learn==$(cat ml_model/sklearn_version.txt)"
+      - name: Hitung risiko harian ke belakang → ringkasan bulanan di Summary
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+          EE_PROJECT: ${{ secrets.EE_PROJECT }}
+          HINDCAST_START: ${{ github.event.inputs.start }}
+          HINDCAST_END: ${{ github.event.inputs.end }}
+        run: python3 jfew_risk_hindcast.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jfew-risk-hindcast
+          path: hindcast_out/
